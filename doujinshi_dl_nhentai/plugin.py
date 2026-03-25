@@ -46,6 +46,8 @@ class Plugin(BasePlugin):
         # Expose commonly-needed values so command.py stays plugin-agnostic
         core_config.set('base_url', C.BASE_URL)
         core_config.set('plugin_config', C.CONFIG)
+        core_config.set('retry_times', C.RETRY_TIMES)
+        core_config.set('image_url_mirrors', C.IMAGE_URL_MIRRORS)
 
 
 # Legacy alias
