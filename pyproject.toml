@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "doujinshi-dl-nhentai"
+version = "1.0.0"
+description = "nhentai plugin for doujinshi-dl (https://github.com/RicterZ/doujinshi-dl)"
+authors = ["Ricter Z <ricterzheng@gmail.com>"]
+license = "MIT"
+readme = "README.rst"
+homepage = "https://github.com/RicterZ/doujinshi-dl-nhentai"
+repository = "https://github.com/RicterZ/doujinshi-dl-nhentai"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+doujinshi-dl = ">=2.0.0"
+requests = "^2.32.3"
+beautifulsoup4 = "^4.12.3"
+tabulate = "^0.9.0"
+iso8601 = "^1.1.0"
+urllib3 = "^1.26.20"
+httpx = "^0.28.1"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.plugins."doujinshi_dl.plugins"]
+nhentai = "doujinshi_dl_nhentai:plugin"
