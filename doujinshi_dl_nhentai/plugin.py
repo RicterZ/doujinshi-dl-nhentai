@@ -20,8 +20,8 @@ class Plugin(BasePlugin):
         return SerializerAdapter()
 
     def check_auth(self) -> None:
-        from doujinshi_dl_nhentai.http import check_cookie
-        check_cookie()
+        from doujinshi_dl_nhentai.http import check_auth
+        check_auth()
 
     def print_results(self, results) -> None:
         from doujinshi_dl_nhentai.parser import print_doujinshi
@@ -32,6 +32,8 @@ class Plugin(BasePlugin):
         from doujinshi_dl.core import config as core_config
         if getattr(args, 'cookie', None):
             C.CONFIG['cookie'] = args.cookie
+        if getattr(args, 'token', None):
+            C.CONFIG['token'] = args.token
         if getattr(args, 'proxy', None):
             C.CONFIG['proxy'] = args.proxy
         if getattr(args, 'useragent', None):

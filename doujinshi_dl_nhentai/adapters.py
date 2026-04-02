@@ -19,13 +19,7 @@ class ParserAdapter(BaseParser):
         return _raw_to_meta(raw)
 
     def search(self, keyword: str, sorting: str = 'date', page=None, **kwargs) -> List[Dict]:
-        from doujinshi_dl_nhentai.parser import search_parser, legacy_search_parser
-        if kwargs.get('legacy') or kwargs.get('type_') == 'ARTIST':
-            return legacy_search_parser(
-                keyword, sorting=sorting, page=page,
-                type_=kwargs.get('type_', 'SEARCH'),
-                is_page_all=kwargs.get('is_page_all', False),
-            )
+        from doujinshi_dl_nhentai.parser import search_parser
         return search_parser(keyword, sorting=sorting, page=page,
                              is_page_all=kwargs.get('is_page_all', False))
 

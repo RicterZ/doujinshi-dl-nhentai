@@ -3,10 +3,12 @@
 Plugin HTTP helpers.
 
 This module provides request() and async_request() with authentication
-headers (Cookie, User-Agent, Referer) injected automatically from the config.
+headers (Authorization / Cookie, User-Agent, Referer) injected automatically
+from the config.
+
+Authentication priority: token (API key) > cookie
 """
 import sys
-import re
 
 import httpx
 import requests
@@ -16,18 +18,21 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def get_headers():
-    from doujinshi_dl_nhentai.constant import CONFIG, LOGIN_URL
+    from doujinshi_dl_nhentai.constant import CONFIG
 
-    headers = {
-        'Referer': LOGIN_URL
-    }
+    headers = {}
 
     user_agent = CONFIG.get('useragent')
     if user_agent and user_agent.strip():
         headers['User-Agent'] = user_agent
 
-    cookie = CONFIG.get('cookie')
-    if cookie and cookie.strip():
+    # Priority: token (API key) > cookie
+    token = CONFIG.get('token', '').strip()
+    cookie = CONFIG.get('cookie', '').strip()
+
+    if token:
+        headers['Authorization'] = f'Key {token}'
+    elif cookie:
         headers['Cookie'] = cookie
 
     return headers
@@ -68,19 +73,40 @@ async def async_request(method, url, proxy=None, **kwargs):
     return response
 
 
-def check_cookie():
-    from doujinshi_dl_nhentai.constant import BASE_URL
+def check_auth():
+    from doujinshi_dl_nhentai.constant import V2_USER_URL, V2_FAV_URL
     from doujinshi_dl.core.logger import logger
 
-    response = request('get', BASE_URL)
+    # Try User Token endpoint first; falls back to favorites for API Key auth
+    response = request('get', V2_USER_URL)
 
-    if response.status_code == 403 and 'Just a moment...' in response.text:
+    if response.status_code == 200:
+        try:
+            data = response.json()
+            username = (data.get('username')
+                        or data.get('name')
+                        or data.get('slug', ''))
+        except Exception:
+            username = ''
+        logger.log(16, f'Login successfully! Your username: {username}')
+        return
+
+    if response.status_code == 401:
+        # API Key cannot access /user — try /favorites as a secondary check
+        fav_resp = request('get', V2_FAV_URL, params={'page': 1})
+        if fav_resp.status_code == 200:
+            logger.log(16, 'Login successfully! (API Key)')
+            return
+        logger.warning(
+            'Not authenticated. Use --token to set your API token.')
+        return
+
+    if response.status_code == 403 and 'Just a moment' in response.text:
         logger.error('Blocked by Cloudflare captcha, please set your cookie and useragent')
         sys.exit(1)
 
-    username = re.findall('"/users/[0-9]+/(.*?)"', response.text)
-    if not username:
-        logger.warning(
-            'Cannot get your username, please check your cookie or use `doujinshi-dl --cookie` to set your cookie')
-    else:
-        logger.log(16, f'Login successfully! Your username: {username[0]}')
+    logger.warning(f'Auth check returned HTTP {response.status_code}')
+
+
+# Backwards-compatibility alias
+check_cookie = check_auth

@@ -1,9 +1,8 @@
 # coding: utf-8
-import sys
 import os
 import re
+import shutil
 import time
-from bs4 import BeautifulSoup
 from tabulate import tabulate
 
 import doujinshi_dl_nhentai.constant as constant
@@ -11,111 +10,39 @@ from doujinshi_dl_nhentai.http import request
 from doujinshi_dl.core.logger import logger
 
 
-def _get_csrf_token(content):
-    html = BeautifulSoup(content, 'html.parser')
-    csrf_token_elem = html.find('input', attrs={'name': 'csrfmiddlewaretoken'})
-    if not csrf_token_elem:
-        raise Exception('Cannot find csrf token to login')
-    return csrf_token_elem.attrs['value']
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _extract_ext(path):
+    """Extract file extension from a gallery page path.
+
+    Handles both normal paths (/galleries/123/1.jpg) and thumbnail paths
+    (/galleries/123/1t.jpg) by stripping the trailing 't' before the dot.
+    """
+    base = os.path.basename(path)
+    # strip thumbnail suffix: '1t.jpg' → '1.jpg'
+    base = re.sub(r't(\.\w+)$', r'\1', base)
+    parts = base.split('.')
+    return parts[-1] if len(parts) > 1 else 'jpg'
 
 
-def login(username, password):
-    logger.warning('This feature is deprecated, please use --cookie to set your cookie.')
-    csrf_token = _get_csrf_token(request('get', url=constant.LOGIN_URL).text)
-    if os.getenv('DEBUG'):
-        logger.info('Getting CSRF token ...')
-
-    if os.getenv('DEBUG'):
-        logger.info(f'CSRF token is {csrf_token}')
-
-    login_dict = {
-        'csrfmiddlewaretoken': csrf_token,
-        'username_or_email': username,
-        'password': password,
+def _map_sorting(sorting):
+    """Map legacy sort parameter names to v2 API accepted values."""
+    mapping = {
+        'recent': 'date',
+        'date': 'date',
+        'popular': 'popular',
+        'popular-today': 'popular-today',
+        'popular-week': 'popular-week',
+        'popular-month': 'popular-month',
     }
-    resp = request('post', url=constant.LOGIN_URL, data=login_dict)
-
-    if 'You\'re loading pages way too quickly.' in resp.text or 'Really, slow down' in resp.text:
-        csrf_token = _get_csrf_token(resp.text)
-        resp = request('post', url=resp.url, data={'csrfmiddlewaretoken': csrf_token, 'next': '/'})
-
-    if 'Invalid username/email or password' in resp.text:
-        logger.error('Login failed, please check your username and password')
-        sys.exit(1)
-
-    if 'You\'re loading pages way too quickly.' in resp.text or 'Really, slow down' in resp.text:
-        logger.error('Using doujinshi-dl --cookie \'YOUR_COOKIE_HERE\' to save your Cookie.')
-        sys.exit(2)
+    return mapping.get(sorting, 'date')
 
 
-def _get_title_and_id(response):
-    result = []
-    html = BeautifulSoup(response, 'html.parser')
-    doujinshi_search_result = html.find_all('div', attrs={'class': 'gallery'})
-    for doujinshi in doujinshi_search_result:
-        doujinshi_container = doujinshi.find('div', attrs={'class': 'caption'})
-        title = doujinshi_container.text.strip()
-        title = title if len(title) < 85 else title[:82] + '...'
-        id_ = re.search('/g/([0-9]+)/', doujinshi.a['href']).group(1)
-        result.append({'id': id_, 'title': title})
-
-    return result
-
-
-def favorites_parser(page=None):
-    result = []
-    html = BeautifulSoup(request('get', constant.FAV_URL).content, 'html.parser')
-    count = html.find('span', attrs={'class': 'count'})
-    if not count:
-        logger.error("Can't get your number of favorite doujinshis. Did the login failed?")
-        return []
-
-    count = int(count.text.strip('(').strip(')').replace(',', ''))
-    if count == 0:
-        logger.warning('No favorites found')
-        return []
-    pages = int(count / 25)
-
-    if page:
-        page_range_list = page
-    else:
-        if pages:
-            pages += 1 if count % (25 * pages) else 0
-        else:
-            pages = 1
-
-        logger.info(f'You have {count} favorites in {pages} pages.')
-
-        if os.getenv('DEBUG'):
-            pages = 1
-
-        page_range_list = range(1, pages + 1)
-
-    for page in page_range_list:
-        logger.info(f'Getting doujinshi ids of page {page}')
-
-        i = 0
-        while i <= constant.RETRY_TIMES + 1:
-            i += 1
-            if i > 3:
-                logger.error(f'Failed to get favorites at page {page} after 3 times retried, skipped')
-                break
-
-            try:
-                resp = request('get', f'{constant.FAV_URL}?page={page}').content
-                temp_result = _get_title_and_id(resp)
-                if not temp_result:
-                    logger.warning(f'Failed to get favorites at page {page}, retrying ({i} times) ...')
-                    continue
-                else:
-                    result.extend(temp_result)
-                    break
-
-            except Exception as e:
-                logger.warning(f'Error: {e}, retrying ({i} times) ...')
-
-    return result
-
+# ---------------------------------------------------------------------------
+# v2 API parsers (default)
+# ---------------------------------------------------------------------------
 
 def doujinshi_parser(id_, counter=0):
     if not isinstance(id_, (int,)) and (isinstance(id_, (str,)) and not id_.isdigit()):
@@ -123,192 +50,178 @@ def doujinshi_parser(id_, counter=0):
 
     id_ = int(id_)
     logger.info(f'Fetching doujinshi information of id {id_}')
-    doujinshi = dict()
-    doujinshi['id'] = id_
-    url = f'{constant.DETAIL_URL}/{id_}/'
 
+    url = f'{constant.V2_GALLERY_URL}/{id_}'
     try:
-        response = request('get', url)
-        if response.status_code in (200, ):
-            response = response.content
-        elif response.status_code in (404,):
+        response = request('get', url, params={'include': 'pages'})
+        if response.status_code == 404:
             logger.error(f'Doujinshi with id {id_} cannot be found')
             return []
-        else:
+        elif response.status_code != 200:
             counter += 1
-
-            if counter == 10:
+            if counter >= 10:
                 logger.critical(f'Failed to fetch doujinshi information of id {id_}')
                 return None
-
             logger.debug(f'Slow down and retry ({id_}) ...')
             time.sleep(1)
             return doujinshi_parser(str(id_), counter)
-
     except Exception as e:
         logger.warning(f'Error: {e}, ignored')
         return None
 
-    html = BeautifulSoup(response, 'html.parser')
-    doujinshi_info = html.find('div', attrs={'id': 'info'})
-
-    title = doujinshi_info.find('h1').text
-    pretty_name = doujinshi_info.find('h1').find('span', attrs={'class': 'pretty'}).text
-    subtitle = doujinshi_info.find('h2')
-    favorite_counts = doujinshi_info.find('span', class_='nobold').text.strip('(').strip(')')
-
-    doujinshi['name'] = title
-    doujinshi['pretty_name'] = pretty_name
-    doujinshi['subtitle'] = subtitle.text if subtitle else ''
-    doujinshi['favorite_counts'] = int(favorite_counts) if favorite_counts and favorite_counts.isdigit() else 0
-
-    doujinshi_cover = html.find('div', attrs={'id': 'cover'})
-    # fix cover.webp.webp
-    img_id = re.search(r'/galleries/(\d+)/cover(\.webp|\.jpg|\.png)?\.\w+$', doujinshi_cover.a.img.attrs['data-src'])
-
-    ext = []
-    for i in html.find_all('div', attrs={'class': 'thumb-container'}):
-        base_name = os.path.basename(i.img.attrs['data-src'])
-        ext_name = base_name.split('.')
-        if len(ext_name) == 3:
-            ext.append(ext_name[1])
-        else:
-            ext.append(ext_name[-1])
-
-    if not img_id:
-        logger.critical(f'Tried yo get image id failed of id: {id_}')
+    try:
+        data = response.json()
+    except Exception as e:
+        logger.warning(f'Failed to parse JSON response: {e}')
         return None
 
-    doujinshi['img_id'] = img_id.group(1)
-    doujinshi['ext'] = ext
+    title_obj = data.get('title', {})
 
-    pages = 0
-    for _ in doujinshi_info.find_all('div', class_='tag-container field-name'):
-        if re.search('Pages:', _.text):
-            pages = _.find('span', class_='name').string
-    doujinshi['pages'] = int(pages)
+    # Group tags by type
+    tag_groups = {}
+    for tag in data.get('tags', []):
+        tag_type = tag.get('type', '').lower()
+        tag_groups.setdefault(tag_type, []).append(tag.get('name', ''))
 
-    # gain information of the doujinshi
-    information_fields = doujinshi_info.find_all('div', attrs={'class': 'field-name'})
-    needed_fields = ['Characters', 'Artists', 'Languages', 'Tags', 'Parodies', 'Groups', 'Categories']
-    for field in information_fields:
-        field_name = field.contents[0].strip().strip(':')
-        if field_name in needed_fields:
-            data = [sub_field.find('span', attrs={'class': 'name'}).contents[0].strip() for sub_field in
-                    field.find_all('a', attrs={'class': 'tag'})]
-            doujinshi[field_name.lower()] = ', '.join(data)
+    doujinshi = {
+        'id':              data['id'],
+        'name':            title_obj.get('english') or title_obj.get('pretty', ''),
+        'pretty_name':     title_obj.get('pretty', ''),
+        'subtitle':        title_obj.get('japanese', ''),
+        'img_id':          str(data['media_id']),
+        'pages':           data['num_pages'],
+        'favorite_counts': data.get('num_favorites', 0),
+        'artists':         ', '.join(tag_groups.get('artist', [])),
+        'groups':          ', '.join(tag_groups.get('group', [])),
+        'parodies':        ', '.join(tag_groups.get('parody', [])),
+        'characters':      ', '.join(tag_groups.get('character', [])),
+        'tags':            ', '.join(tag_groups.get('tag', [])),
+        'languages':       ', '.join(tag_groups.get('language', [])),
+        'categories':      ', '.join(tag_groups.get('category', [])),
+        'date':            str(data.get('upload_date', '')),
+    }
 
-    time_field = doujinshi_info.find('time')
-    if time_field.has_attr('datetime'):
-        doujinshi['date'] = time_field['datetime']
-    return doujinshi
-
-
-def print_doujinshi(doujinshi_list):
-    if not doujinshi_list:
-        return
-    doujinshi_list = [(i['id'], i['title']) for i in doujinshi_list]
-    headers = ['id', 'doujinshi']
-    logger.info(f'Search Result || Found {doujinshi_list.__len__()} doujinshis')
-    print(tabulate(tabular_data=doujinshi_list, headers=headers, tablefmt='rst'))
-
-
-def legacy_search_parser(keyword, sorting, page, is_page_all=False, type_='SEARCH'):
-    logger.info(f'Searching doujinshis of keyword {keyword}')
-    result = []
-
-    if type_ not in ('SEARCH', 'ARTIST', ):
-        raise ValueError('Invalid type')
-
-    if is_page_all:
-        if type_ == 'SEARCH':
-            response = request('get', url=constant.LEGACY_SEARCH_URL,
-                               params={'q': keyword, 'page': 1, 'sort': sorting}).content
-        else:
-            url = constant.ARTIST_URL + keyword + '/' + ('' if sorting == 'recent' else sorting)
-            response = request('get', url=url, params={'page': 1}).content
-
-        html = BeautifulSoup(response, 'lxml')
-        pagination = html.find(attrs={'class': 'pagination'})
-        last_page = pagination.find(attrs={'class': 'last'})
-        last_page = re.findall('page=([0-9]+)', last_page.attrs['href'])[0]
-        logger.info(f'Getting doujinshi ids of {last_page} pages')
-        pages = range(1, int(last_page))
+    # Extract per-page extensions from pages[] array
+    pages_data = data.get('pages', [])
+    if pages_data:
+        doujinshi['ext'] = [_extract_ext(p['path']) for p in pages_data]
     else:
-        pages = page
+        # Fallback: infer extension from cover path, apply uniformly
+        cover_path = data.get('cover', {}).get('path', '')
+        ext = _extract_ext(cover_path) if cover_path else 'jpg'
+        doujinshi['ext'] = [ext] * data['num_pages']
 
-    for p in pages:
-        logger.info(f'Fetching page {p} ...')
-        if type_ == 'SEARCH':
-            response = request('get', url=constant.LEGACY_SEARCH_URL,
-                               params={'q': keyword, 'page': p, 'sort': sorting}).content
-        else:
-            url = constant.ARTIST_URL + keyword + '/' + ('' if sorting == 'recent' else sorting)
-            response = request('get', url=url, params={'page': p}).content
-
-        if response is None:
-            logger.warning(f'No result in response in page {p}')
-            continue
-        result.extend(_get_title_and_id(response))
-
-    if not result:
-        logger.warning(f'No results for keywords {keyword}')
-
-    return result
+    return doujinshi
 
 
 def search_parser(keyword, sorting, page, is_page_all=False):
     result = []
-    response = None
+    params = {'query': keyword, 'sort': _map_sorting(sorting)}
+
     if not page:
         page = [1]
 
     if is_page_all:
-        url = request('get', url=constant.SEARCH_URL, params={'query': keyword}).url
-        init_response = request('get', url.replace('%2B', '+')).json()
-        page = range(1, init_response['num_pages']+1)
+        logger.info(f'Searching all pages for keyword "{keyword}"')
+        init_response = request('get', constant.V2_SEARCH_URL,
+                                params={**params, 'page': 1}).json()
+        page = range(1, init_response.get('num_pages', 1) + 1)
 
     total = f'/{page[-1]}' if is_page_all else ''
-    not_exists_persist = False
     for p in page:
-        i = 0
-
         logger.info(f'Searching doujinshis using keywords "{keyword}" on page {p}{total}')
-        while i < constant.RETRY_TIMES:
-            try:
-                url = request('get', url=constant.SEARCH_URL, params={'query': keyword,
-                                                                      'page': p, 'sort': sorting}).url
-
-                if constant.DEBUG:
-                    logger.debug(f'Request URL: {url}')
-
-                response = request('get', url.replace('%2B', '+')).json()
-            except Exception as e:
-                logger.critical(str(e))
-                response = None
-            break
+        try:
+            response = request('get', constant.V2_SEARCH_URL,
+                               params={**params, 'page': p}).json()
+        except Exception as e:
+            logger.critical(str(e))
+            continue
 
         if constant.DEBUG:
             logger.debug(f'Response: {response}')
 
-        if response is None or 'result' not in response:
-            logger.warning(f'No result in response in page {p}')
-            if not_exists_persist is True:
-                break
+        if not response or 'result' not in response:
+            logger.warning(f'No result in response on page {p}')
             continue
 
         for row in response['result']:
-            title = row['title']['english']
-            title = title[:constant.CONFIG['max_filename']] + '..' if \
-                len(title) > constant.CONFIG['max_filename'] else title
-
+            title = (row.get('english_title')
+                     or row.get('title', {}).get('english', '')
+                     or '')
+            max_len = constant.CONFIG['max_filename']
+            title = title[:max_len] + '..' if len(title) > max_len else title
             result.append({'id': row['id'], 'title': title})
 
-        not_exists_persist = False
-        if not result:
-            logger.warning(f'No results for keywords {keyword}')
+    if not result:
+        logger.warning(f'No results for keyword "{keyword}"')
 
     return result
+
+
+def favorites_parser(page=None):
+    result = []
+
+    if page:
+        page_range = page
+    else:
+        try:
+            init = request('get', constant.V2_FAV_URL, params={'page': 1}).json()
+        except Exception as e:
+            logger.error(f"Can't get favorites: {e}")
+            return []
+
+        if 'error' in init:
+            logger.error(f"Can't get favorites: {init['error']}")
+            return []
+
+        total_pages = init.get('num_pages', 1)
+        logger.info(f'Fetching favorites across {total_pages} pages.')
+
+        if os.getenv('DEBUG'):
+            page_range = range(1, 2)
+        else:
+            page_range = range(1, total_pages + 1)
+
+    for p in page_range:
+        logger.info(f'Getting doujinshi ids of page {p}')
+        i = 0
+        while i <= constant.RETRY_TIMES:
+            i += 1
+            try:
+                response = request('get', constant.V2_FAV_URL, params={'page': p}).json()
+                if 'result' not in response:
+                    logger.warning(f'Failed to get favorites at page {p}, retrying ({i} times) ...')
+                    continue
+                for row in response['result']:
+                    title = (row.get('english_title')
+                             or row.get('title', {}).get('english', '')
+                             or '')
+                    result.append({'id': row['id'], 'title': title})
+                break
+            except Exception as e:
+                logger.warning(f'Error: {e}, retrying ({i} times) ...')
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Display helper
+# ---------------------------------------------------------------------------
+
+def print_doujinshi(doujinshi_list):
+    if not doujinshi_list:
+        return
+    try:
+        term_width = int(os.environ['COLUMNS'])
+    except (KeyError, ValueError):
+        term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+    # id column ~6 chars + 4 padding/borders; leave the rest for title
+    title_width = max(term_width - 10, 40)
+    data = [(i['id'], i['title']) for i in doujinshi_list]
+    headers = ['id', 'doujinshi']
+    logger.info(f'Search Result || Found {len(doujinshi_list)} doujinshis')
+    print(tabulate(tabular_data=data, headers=headers, tablefmt='rst',
+                   maxcolwidths=[None, title_width]))
 
 
 if __name__ == '__main__':

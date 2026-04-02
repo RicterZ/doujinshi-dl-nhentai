@@ -1,5 +1,7 @@
 # coding: utf-8
 import os
+import shutil
+import textwrap
 
 from tabulate import tabulate
 
@@ -14,6 +16,11 @@ EXT_MAP = {
     'g': 'gif',
     'w': 'webp',
 }
+
+
+def _wrap(text, width):
+    """Wrap text to width, joining lines with newline for tabulate."""
+    return '\n'.join(textwrap.wrap(text, width)) if text else text
 
 
 class DoujinshiInfo(dict):
@@ -74,7 +81,14 @@ class Doujinshi(object):
         return f'<Doujinshi: {self.name}>'
 
     def show(self):
-        logger.info(f'Print doujinshi information of {self.id}\n{tabulate(self.table)}')
+        try:
+            term_width = int(os.environ['COLUMNS'])
+        except (KeyError, ValueError):
+            term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        # label column is ~15 chars + 2 padding; leave the rest for value
+        value_width = max(term_width - 20, 40)
+        wrapped = [[k, _wrap(str(v), value_width)] for k, v in self.table]
+        logger.info(f'Print doujinshi information of {self.id}\n{tabulate(wrapped)}')
 
     def check_if_need_download(self, options):
         if options.no_download:
