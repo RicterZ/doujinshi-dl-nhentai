@@ -30,14 +30,10 @@ class Plugin(BasePlugin):
     def configure(self, args) -> None:
         from doujinshi_dl_nhentai import constant as C
         from doujinshi_dl.core import config as core_config
-        if getattr(args, 'cookie', None):
-            C.CONFIG['cookie'] = args.cookie
         if getattr(args, 'token', None):
             C.CONFIG['token'] = args.token
         if getattr(args, 'proxy', None):
             C.CONFIG['proxy'] = args.proxy
-        if getattr(args, 'useragent', None):
-            C.CONFIG['useragent'] = args.useragent
         if getattr(args, 'language', None):
             C.CONFIG['language'] = args.language
         if getattr(args, 'template', None):

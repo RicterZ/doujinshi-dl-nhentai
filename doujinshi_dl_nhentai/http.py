@@ -26,7 +26,7 @@ def get_headers():
     if user_agent and user_agent.strip():
         headers['User-Agent'] = user_agent
 
-    # Priority: token (API key) > cookie
+    # Priority: token (API key) > cookie (legacy fallback)
     token = CONFIG.get('token', '').strip()
     cookie = CONFIG.get('cookie', '').strip()
 
