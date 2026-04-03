@@ -123,18 +123,23 @@ def search_parser(keyword, sorting, page, is_page_all=False):
 
     if is_page_all:
         logger.info(f'Searching all pages for keyword "{keyword}"')
-        init_response = request('get', constant.V2_SEARCH_URL,
-                                params={**params, 'page': 1}).json()
+        try:
+            init_response = request('get', constant.V2_SEARCH_URL,
+                                    params={**params, 'page': 1}).json()
+        except Exception as e:
+            logger.critical(f'Failed to parse search response: {e}')
+            return result
         page = range(1, init_response.get('num_pages', 1) + 1)
 
     total = f'/{page[-1]}' if is_page_all else ''
     for p in page:
         logger.info(f'Searching doujinshis using keywords "{keyword}" on page {p}{total}')
         try:
-            response = request('get', constant.V2_SEARCH_URL,
-                               params={**params, 'page': p}).json()
+            resp = request('get', constant.V2_SEARCH_URL,
+                           params={**params, 'page': p})
+            response = resp.json()
         except Exception as e:
-            logger.critical(str(e))
+            logger.critical(f'Failed to parse search response on page {p}: {e}')
             continue
 
         if constant.DEBUG:
