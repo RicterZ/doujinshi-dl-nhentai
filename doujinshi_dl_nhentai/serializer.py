@@ -55,10 +55,18 @@ def serialize_comic_xml(doujinshi, output_dir):
                              'full color' in doujinshi.info.tags else 'Yes')
 
         if doujinshi.info.date:
-            dt = parse_date(doujinshi.info.date)
-            xml_write_simple_tag(f, 'Year', dt.year)
-            xml_write_simple_tag(f, 'Month', dt.month)
-            xml_write_simple_tag(f, 'Day', dt.day)
+            try:
+                from datetime import datetime, timezone
+                date_val = doujinshi.info.date
+                if str(date_val).lstrip('-').isdigit():
+                    dt = datetime.fromtimestamp(int(date_val), tz=timezone.utc)
+                else:
+                    dt = parse_date(date_val)
+                xml_write_simple_tag(f, 'Year', dt.year)
+                xml_write_simple_tag(f, 'Month', dt.month)
+                xml_write_simple_tag(f, 'Day', dt.day)
+            except Exception:
+                pass
         if doujinshi.info.parodies:
             xml_write_simple_tag(f, 'Series', doujinshi.info.parodies)
         if doujinshi.info.groups:
