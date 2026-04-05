@@ -33,7 +33,7 @@ The entry point points to the module-level `plugin` instance in `__init__.py`, n
 | `__init__.py` | Exposes the singleton `plugin = Plugin()` consumed by the entry point |
 | `plugin.py` | `Plugin(BasePlugin)` — factory for parser/model/serializer; implements `configure()`, `check_auth()`, `print_results()` |
 | `adapters.py` | `ParserAdapter`, `DoujinshiAdapter`, `SerializerAdapter` — bridge between core interfaces and nhentai internals |
-| `parser.py` | HTTP scraping: `doujinshi_parser()`, `search_parser()`, `legacy_search_parser()`, `favorites_parser()`, `print_doujinshi()` |
+| `parser.py` | HTTP scraping: `doujinshi_parser()`, `galleries_by_tag_parser`, `search_parser()`, `legacy_search_parser()`, `favorites_parser()`, `print_doujinshi()` |
 | `model.py` | `Doujinshi` model — holds metadata, builds download queue, formats folder names |
 | `serializer.py` | Writes `metadata.json`, `ComicInfo.xml`, `info.txt`; `set_js_database()` for main viewer |
 | `http.py` | `request()`, `async_request()`, `get_headers()`, `check_cookie()` — all HTTP calls inject auth headers from `CONFIG` |
