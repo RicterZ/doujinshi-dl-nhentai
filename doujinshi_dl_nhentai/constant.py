@@ -1,4 +1,4 @@
-# coding: utf-8
+﻿# coding: utf-8
 import os
 import tempfile
 
@@ -35,6 +35,7 @@ BASE_URL = os.getenv('DOUJINSHI_DL_URL', 'https://nhentai.net')
 # v2 API
 V2_BASE_URL    = f'{BASE_URL}/api/v2'
 V2_GALLERY_URL = f'{V2_BASE_URL}/galleries'
+V2_GALLERIES_BY_TAG_ID_URL = f'{V2_BASE_URL}/galleries/tagged'
 V2_SEARCH_URL  = f'{V2_BASE_URL}/search'
 V2_FAV_URL     = f'{V2_BASE_URL}/favorites'
 V2_USER_URL    = f'{V2_BASE_URL}/user'

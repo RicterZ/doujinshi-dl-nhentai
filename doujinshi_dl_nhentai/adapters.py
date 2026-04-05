@@ -1,4 +1,4 @@
-# coding: utf-8
+﻿# coding: utf-8
 """
 Adapters that wrap the plugin-specific code to implement the
 core plugin interfaces (BaseParser, BaseModel, BaseSerializer).
@@ -9,7 +9,7 @@ from doujinshi_dl.core.plugin import BaseParser, BaseModel, BaseSerializer, Gall
 
 
 class ParserAdapter(BaseParser):
-    """Wraps doujinshi_dl_nhentai.parser.doujinshi_parser / search_parser / favorites_parser."""
+    """Wraps doujinshi_dl_nhentai.parser.doujinshi_parser / galleries_by_tag_parser / search_parser / favorites_parser."""
 
     def fetch(self, gallery_id: str) -> GalleryMeta:
         from doujinshi_dl_nhentai.parser import doujinshi_parser
@@ -17,6 +17,12 @@ class ParserAdapter(BaseParser):
         if not raw:
             return None  # type: ignore[return-value]
         return _raw_to_meta(raw)
+
+    def galleries_by_tag(self, tag_id: int, sorting: str = 'date', page=None, **kwargs) -> List[Dict]:
+        from doujinshi_dl_nhentai.parser import galleries_by_tag_parser
+        return galleries_by_tag_parser(tag_id, sorting=sorting, page=page,
+                                      is_page_all=kwargs.get('is_page_all', False),
+                                      page_size=kwargs.get('page_size', 25))
 
     def search(self, keyword: str, sorting: str = 'date', page=None, **kwargs) -> List[Dict]:
         from doujinshi_dl_nhentai.parser import search_parser

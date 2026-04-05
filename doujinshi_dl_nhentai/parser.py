@@ -1,8 +1,9 @@
-# coding: utf-8
+﻿# coding: utf-8
 import os
 import re
 import shutil
 import time
+import math
 from tabulate import tabulate
 
 import doujinshi_dl_nhentai.constant as constant
@@ -113,6 +114,65 @@ def doujinshi_parser(id_, counter=0):
 
     return doujinshi
 
+def galleries_by_tag_parser(tag_id, sorting, page, is_page_all=False, page_size=25):
+    result = []
+    params = {'tag_id': tag_id, 'sort': _map_sorting(sorting)}
+
+    if not page:
+        page = [1]
+
+    if is_page_all:
+        logger.info(f'Searching all pages for tag id "{tag_id}"')
+        try:
+            # Do a first request to find out total amount of results, thereby determining page count.
+            # Forcing one result keeps response size low and allows for a fallback when determinign total result count
+            init_response = request('get', constant.V2_GALLERIES_BY_TAG_ID_URL,
+                                    params={**params, 'page': 1, 'per_page': 1}).json()
+        except Exception as e:
+            logger.critical(f'Failed to parse tag id response: {e}')
+            return result
+
+        # Init request seemingly always returns null for total (api bug?). As we used page size of 1, num_pages is also equal to total result count
+        total = init_response.get('total')
+        if total is None:
+            total = init_response.get('num_pages')
+            if total is None:
+                logger.critical(f'Failed to determine total results from tag id response: {init_response}')
+                return result
+
+        page_count = math.ceil(total / page_size)        
+        page = range(1, page_count + 1)
+        
+    total_pages = f'{page[-1]}' if is_page_all else ''
+    for p in page:
+        logger.info(f'Searching doujinshis using tag id "{tag_id}" on page {p}/{total_pages}')
+        try:
+            resp = request('get', constant.V2_GALLERIES_BY_TAG_ID_URL,
+                           params={**params, 'page': p, 'per_page': page_size})
+            response = resp.json()
+        except Exception as e:
+            logger.critical(f'Failed to parse tag id response on page {p}: {e}')
+            continue
+
+        if constant.DEBUG:
+            logger.debug(f'Response: {response}')
+
+        if not response or 'result' not in response:
+            logger.warning(f'No result in response on page {p}')
+            continue
+
+        for row in response['result']:
+            title = (row.get('english_title')
+                     or row.get('title', {}).get('english', '')
+                     or '')
+            max_len = constant.CONFIG['max_filename']
+            title = title[:max_len] + '..' if len(title) > max_len else title
+            result.append({'id': row['id'], 'title': title})
+
+    if not result:
+        logger.warning(f'No results for tag id "{tag_id}"')
+
+    return result
 
 def search_parser(keyword, sorting, page, is_page_all=False):
     result = []
