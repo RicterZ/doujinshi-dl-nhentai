@@ -140,6 +140,10 @@ def galleries_by_tag_parser(tag_id, sorting, page, is_page_all=False, page_size=
                 logger.critical(f'Failed to determine total results from tag id response: {init_response}')
                 return result
 
+        if total is 0:
+            logger.info(f'No results found for tag id "{tag_id}"')
+            return result
+
         page_count = math.ceil(total / page_size)        
         page = range(1, page_count + 1)
         
