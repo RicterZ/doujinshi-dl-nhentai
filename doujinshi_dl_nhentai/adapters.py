@@ -18,6 +18,11 @@ class ParserAdapter(BaseParser):
             return None  # type: ignore[return-value]
         return _raw_to_meta(raw)
 
+    def artist(self, artist_name: str, sorting: str = 'date', page=None, **kwargs) -> List[Dict]:
+        from doujinshi_dl_nhentai.parser import artist_parser
+        return artist_parser(artist_name, sorting=sorting, page=page,
+                             is_page_all=kwargs.get('is_page_all', False))
+
     def search(self, keyword: str, sorting: str = 'date', page=None, **kwargs) -> List[Dict]:
         from doujinshi_dl_nhentai.parser import search_parser
         return search_parser(keyword, sorting=sorting, page=page,

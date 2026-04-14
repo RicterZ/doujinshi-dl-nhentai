@@ -114,6 +114,73 @@ def doujinshi_parser(id_, counter=0):
     return doujinshi
 
 
+def artist_parser(artist_name, sorting, page, is_page_all=False):
+    """Exact artist lookup via tag slug → tagged galleries endpoint."""
+    slug = artist_name.strip().lower().replace(' ', '-')
+    logger.info(f'Looking up artist tag "{slug}"')
+
+    try:
+        resp = request('get', f'{constant.V2_TAGS_URL}/artist/{slug}')
+        if resp.status_code == 404:
+            logger.warning(f'Artist "{artist_name}" not found, falling back to search')
+            return search_parser(f'artist:{artist_name}', sorting, page, is_page_all)
+        tag_data = resp.json()
+    except Exception as e:
+        logger.warning(f'Failed to lookup artist tag: {e}, falling back to search')
+        return search_parser(f'artist:{artist_name}', sorting, page, is_page_all)
+
+    tag_id = tag_data.get('id')
+    if not tag_id:
+        logger.warning(f'No tag id for artist "{artist_name}", falling back to search')
+        return search_parser(f'artist:{artist_name}', sorting, page, is_page_all)
+
+    logger.info(f'Found artist tag id {tag_id} for "{artist_name}"')
+
+    result = []
+    params = {'tag_id': tag_id, 'sort': _map_sorting(sorting)}
+
+    if not page:
+        page = [1]
+
+    if is_page_all:
+        logger.info(f'Fetching all pages for artist "{artist_name}"')
+        try:
+            init_response = request('get', constant.V2_TAGGED_URL,
+                                    params={**params, 'page': 1}).json()
+        except Exception as e:
+            logger.critical(f'Failed to parse tagged response: {e}')
+            return result
+        page = range(1, init_response.get('num_pages', 1) + 1)
+
+    total = f'/{page[-1]}' if is_page_all else ''
+    for p in page:
+        logger.info(f'Fetching artist "{artist_name}" galleries on page {p}{total}')
+        try:
+            resp = request('get', constant.V2_TAGGED_URL,
+                           params={**params, 'page': p})
+            response = resp.json()
+        except Exception as e:
+            logger.critical(f'Failed to parse tagged response on page {p}: {e}')
+            continue
+
+        if not response or 'result' not in response:
+            logger.warning(f'No result in response on page {p}')
+            continue
+
+        for row in response['result']:
+            title = (row.get('english_title')
+                     or row.get('title', {}).get('english', '')
+                     or '')
+            max_len = constant.CONFIG['max_filename']
+            title = title[:max_len] + '..' if len(title) > max_len else title
+            result.append({'id': row['id'], 'title': title})
+
+    if not result:
+        logger.warning(f'No results for artist "{artist_name}"')
+
+    return result
+
+
 def search_parser(keyword, sorting, page, is_page_all=False):
     result = []
     params = {'query': keyword, 'sort': _map_sorting(sorting)}
