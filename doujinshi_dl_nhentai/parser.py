@@ -1,4 +1,4 @@
-# coding: utf-8
+﻿# coding: utf-8
 import os
 import re
 import shutil
@@ -38,6 +38,10 @@ def _map_sorting(sorting):
         'popular-month': 'popular-month',
     }
     return mapping.get(sorting, 'date')
+
+def _parse_tag_to_slug(tag_name):
+    """Map tag name to its url slug representation."""
+    return tag_name.strip().lower().replace(' | ', '-').replace(' ', '-')
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +120,7 @@ def doujinshi_parser(id_, counter=0):
 
 def artist_parser(artist_name, sorting, page, is_page_all=False):
     """Exact artist lookup via tag slug → tagged galleries endpoint."""
-    slug = artist_name.strip().lower().replace(' ', '-')
+    slug = _parse_tag_to_slug(artist_name)
     logger.info(f'Looking up artist tag "{slug}"')
 
     try:
