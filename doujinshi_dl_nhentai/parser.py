@@ -262,16 +262,20 @@ def favorites_parser(page=None):
             try:
                 response = request('get', constant.V2_FAV_URL, params={'page': p}).json()
                 if 'result' not in response:
-                    logger.warning(f'Failed to get favorites at page {p}, retrying ({i} times) ...')
+                    logger.warning(f'Failed to get favorites at page {p}, retrying ({i} times), waiting 70s ...')
+                    time.sleep(70)
                     continue
                 for row in response['result']:
                     title = (row.get('english_title')
                              or row.get('title', {}).get('english', '')
                              or '')
                     result.append({'id': row['id'], 'title': title})
+                if i > 1:
+                    logger.warning(f'Page {p} successfully received!')
                 break
             except Exception as e:
-                logger.warning(f'Error: {e}, retrying ({i} times) ...')
+                logger.warning(f'Error: {e}, retrying ({i} times), waiting 5s ...')
+                time.sleep(5)
 
     return result
 
