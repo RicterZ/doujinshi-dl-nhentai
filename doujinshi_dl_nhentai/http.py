@@ -7,14 +7,54 @@ headers (Authorization / Cookie, User-Agent, Referer) injected automatically
 from the config.
 
 Authentication priority: token (API key) > cookie
+
+Rate limiting: A token-bucket limiter caps outgoing requests at 14/min
+(under the site's 15/min hard limit). HTTP 429 responses trigger exponential
+backoff with automatic retry.
 """
 import sys
+import time
+import threading
 
 import httpx
 import requests
 import urllib3.exceptions
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+class _RateLimiter:
+    """Simple token-bucket rate limiter.
+
+    Allows up to `rate` requests per `period` seconds.  Callers block via
+    acquire() until a token is available.
+    """
+
+    def __init__(self, rate: int = 14, period: float = 60.0):
+        self.rate = rate
+        self.period = period
+        self._lock = threading.Lock()
+        self._tokens = float(rate)
+        self._last = time.monotonic()
+
+    def acquire(self):
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last
+            self._tokens = min(self.rate, self._tokens + elapsed * (self.rate / self.period))
+            self._last = now
+
+            if self._tokens < 1.0:
+                wait = (1.0 - self._tokens) * (self.period / self.rate)
+                time.sleep(wait)
+                self._tokens = 0.0
+                self._last = time.monotonic()
+            else:
+                self._tokens -= 1.0
+
+
+_limiter = _RateLimiter(rate=14, period=60.0)
+_MAX_429_RETRIES = 5
 
 
 def get_headers():
@@ -40,6 +80,7 @@ def get_headers():
 
 def request(method, url, **kwargs):
     from doujinshi_dl_nhentai.constant import CONFIG
+    from doujinshi_dl.core.logger import logger
 
     session = requests.Session()
     session.headers.update(get_headers())
@@ -50,7 +91,24 @@ def request(method, url, **kwargs):
             'http': CONFIG['proxy'],
         }
 
-    return getattr(session, method)(url, verify=False, **kwargs)
+    backoff = 2.0
+    for attempt in range(_MAX_429_RETRIES + 1):
+        _limiter.acquire()
+        resp = getattr(session, method)(url, verify=False, **kwargs)
+
+        if resp.status_code != 429:
+            return resp
+
+        # Rate-limited — exponential backoff
+        if attempt < _MAX_429_RETRIES:
+            retry_after = resp.headers.get('Retry-After')
+            wait = float(retry_after) if retry_after and retry_after.isdigit() else backoff
+            logger.warning(f'Rate limited (429), waiting {wait:.1f}s before retry ({attempt + 1}/{_MAX_429_RETRIES})...')
+            time.sleep(wait)
+            backoff = min(backoff * 2, 60.0)
+
+    logger.error(f'Still rate-limited after {_MAX_429_RETRIES} retries: {url}')
+    return resp
 
 
 async def async_request(method, url, proxy=None, **kwargs):

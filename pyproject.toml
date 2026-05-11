@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "doujinshi-dl-nhentai"
-version = "1.2.0"
+version = "1.2.1"
 description = "nhentai plugin for doujinshi-dl (https://github.com/RicterZ/doujinshi-dl)"
 authors = ["Ricter Z <ricterzheng@gmail.com>"]
 license = "MIT"
