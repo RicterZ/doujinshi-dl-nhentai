@@ -1,4 +1,4 @@
-# coding: utf-8
+﻿# coding: utf-8
 import os
 import re
 import shutil
@@ -38,6 +38,49 @@ def _map_sorting(sorting):
         'popular-month': 'popular-month',
     }
     return mapping.get(sorting, 'date')
+
+def _parse_tag_to_slug(tag_name):
+    """Map tag name to its url slug representation.
+    
+    Rules applied:
+    - Dots at the beginning or end of a segment are removed
+    - Dots in the middle of a segment are replaced by dashes
+    - Segments separated by " | " are joined with a single dash
+    - Multiple consecutive dashes are reduced to a single dash
+    - Leading/trailing dashes are removed from the final result
+    
+    Examples:
+    - ".exe" → "exe" (dot at beginning removed)
+    - "hanao." → "hanao" (dot at end removed)
+    - "mr.skull" → "mr-skull" (dot in middle becomes dash)
+    - "hanao. | kumao mofumofu" → "hanao-kumao-mofumofu" (no double dash)
+    - "yosyo- | ikinari mojio" → "yosyo-ikinari-mojio" (no double dash)
+    - "yosyo-" → "yosyo" (trailing dash removed)
+    """
+    # Strip and lowercase
+    tag_name = tag_name.strip().lower()
+    
+    # Split by " | " and process each part
+    parts = tag_name.split(' | ')
+    processed_parts = []
+    
+    for part in parts:
+        # Replace dots with dashes
+        part = part.replace('.', '-')
+        # Replace spaces with dashes
+        part = part.replace(' ', '-')
+        # Strip leading and trailing dashes
+        part = part.strip('-')
+        if part:  # Only add non-empty parts
+            processed_parts.append(part)
+    
+    # Join parts with "-"
+    result = '-'.join(processed_parts)
+    
+    # Reduce multiple consecutive dashes to single dash
+    result = re.sub(r'-+', '-', result)
+    
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +159,7 @@ def doujinshi_parser(id_, counter=0):
 
 def artist_parser(artist_name, sorting, page, is_page_all=False):
     """Exact artist lookup via tag slug → tagged galleries endpoint."""
-    slug = artist_name.strip().lower().replace(' ', '-')
+    slug = _parse_tag_to_slug(artist_name)
     logger.info(f'Looking up artist tag "{slug}"')
 
     try:
